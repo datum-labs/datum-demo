@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>demo.datum.net</title>
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">demo.datum.net</div>
+    <div class="status" id="status">
+      <span class="dot" id="status-dot"></span>
+      <span id="status-text">connecting…</span>
+    </div>
+  </header>
+
+  <main class="grid">
+    <section class="column column--internet" data-path="direct">
+      <h2 class="column__title">Without Datum</h2>
+      <p class="column__sub">Public internet · scenic BGP · no observability</p>
+      <div class="metric">
+        <div class="metric__value" id="direct-current">—</div>
+        <div class="metric__unit">ms total</div>
+      </div>
+      <div class="stats">
+        <div><span class="stats__label">p50</span><span id="direct-p50">—</span></div>
+        <div><span class="stats__label">p95</span><span id="direct-p95">—</span></div>
+        <div><span class="stats__label">loss</span><span id="direct-loss">—</span></div>
+      </div>
+      <svg class="spark" id="direct-spark" viewBox="0 0 200 60" preserveAspectRatio="none" aria-hidden="true">
+        <polyline class="spark__line" points="" />
+      </svg>
+      <div class="meta">
+        <div><span class="meta__label">target</span> <span id="direct-target" class="meta__url">—</span></div>
+        <div><span class="meta__label">samples</span> <span id="direct-count">0</span></div>
+      </div>
+    </section>
+
+    <section class="column column--datum" data-path="datum">
+      <h2 class="column__title">With Datum</h2>
+      <p class="column__sub">QUIC tunnel · optimized backbone · OTel</p>
+      <div class="metric">
+        <div class="metric__value" id="datum-current">—</div>
+        <div class="metric__unit">ms total</div>
+      </div>
+      <div class="stats">
+        <div><span class="stats__label">p50</span><span id="datum-p50">—</span></div>
+        <div><span class="stats__label">p95</span><span id="datum-p95">—</span></div>
+        <div><span class="stats__label">loss</span><span id="datum-loss">—</span></div>
+      </div>
+      <svg class="spark" id="datum-spark" viewBox="0 0 200 60" preserveAspectRatio="none" aria-hidden="true">
+        <polyline class="spark__line" points="" />
+      </svg>
+      <div class="meta">
+        <div><span class="meta__label">target</span> <span id="datum-target" class="meta__url">—</span></div>
+        <div><span class="meta__label">samples</span> <span id="datum-count">0</span></div>
+      </div>
+      <div class="banner" id="datum-banner" hidden>Datum tunnel offline</div>
+    </section>
+  </main>
+
+  <footer class="footbar">
+    <span id="window-info">window: 5 min · refresh: 2s</span>
+    <span id="prober-info"></span>
+  </footer>
+
+  <script src="/app.js" defer></script>
+</body>
+</html>

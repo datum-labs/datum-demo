@@ -1,0 +1,5 @@
+{
+  "dependencies": {
+    "@higgsfield/cli": "^0.1.40"
+  }
+}
