@@ -12,7 +12,9 @@
       current: document.getElementById("direct-current"),
       p50: document.getElementById("direct-p50"),
       p95: document.getElementById("direct-p95"),
+      ttfb: document.getElementById("direct-ttfb"),
       loss: document.getElementById("direct-loss"),
+      errors: document.getElementById("direct-errors"),
       count: document.getElementById("direct-count"),
       target: document.getElementById("direct-target"),
       spark: document.querySelector("#direct-spark .spark__line"),
@@ -22,7 +24,9 @@
       current: document.getElementById("datum-current"),
       p50: document.getElementById("datum-p50"),
       p95: document.getElementById("datum-p95"),
+      ttfb: document.getElementById("datum-ttfb"),
       loss: document.getElementById("datum-loss"),
+      errors: document.getElementById("datum-errors"),
       count: document.getElementById("datum-count"),
       target: document.getElementById("datum-target"),
       spark: document.querySelector("#datum-spark .spark__line"),
@@ -72,7 +76,9 @@
     refs.current.textContent = fmtMs(summary.current_ms);
     refs.p50.textContent = fmtMs(summary.p50_ms);
     refs.p95.textContent = fmtMs(summary.p95_ms);
-    refs.loss.textContent = fmtPct(summary.loss_pct);
+    refs.ttfb.textContent = fmtMs(summary.p50_ttfb_ms);
+    refs.loss.textContent = fmtPct(summary.retrans_pct);
+    refs.errors.textContent = fmtPct(summary.error_pct);
     refs.count.textContent = summary.sample_count.toString();
     renderSpark(refs.spark, summary.samples);
   }

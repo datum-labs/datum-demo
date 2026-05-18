@@ -40,15 +40,17 @@ type targetsInfo struct {
 }
 
 type pathSummary struct {
-	CurrentMs    float64       `json:"current_ms"`
-	P50Ms        float64       `json:"p50_ms"`
-	P95Ms        float64       `json:"p95_ms"`
-	LossPct      float64       `json:"loss_pct"`
-	SampleCount  int           `json:"sample_count"`
-	OkCount      int           `json:"ok_count"`
-	LastError    string        `json:"last_error,omitempty"`
-	LastStatus   int           `json:"last_status_code,omitempty"`
-	Samples      []apiSample   `json:"samples"`
+	CurrentMs   float64     `json:"current_ms"`
+	P50Ms       float64     `json:"p50_ms"`
+	P95Ms       float64     `json:"p95_ms"`
+	P50TtfbMs   float64     `json:"p50_ttfb_ms"`
+	ErrorPct    float64     `json:"error_pct"`
+	RetransPct  float64     `json:"retrans_pct"`
+	SampleCount int         `json:"sample_count"`
+	OkCount     int         `json:"ok_count"`
+	LastError   string      `json:"last_error,omitempty"`
+	LastStatus  int         `json:"last_status_code,omitempty"`
+	Samples     []apiSample `json:"samples"`
 }
 
 type apiSample struct {
@@ -173,6 +175,8 @@ func summarize(samples []Sample) pathSummary {
 	}
 
 	okTotals := make([]float64, 0, len(samples))
+	okTtfbs := make([]float64, 0, len(samples))
+	var sumRetrans, sumSegs int64
 	for _, s := range samples {
 		out.Samples = append(out.Samples, apiSample{
 			TsMs:    s.TsMs,
@@ -183,6 +187,13 @@ func summarize(samples []Sample) pathSummary {
 		if s.Ok {
 			out.OkCount++
 			okTotals = append(okTotals, s.TotalMs)
+			if s.TtfbMs > 0 {
+				okTtfbs = append(okTtfbs, s.TtfbMs)
+			}
+			if s.DataSegsOut > 0 {
+				sumRetrans += s.TotalRetrans
+				sumSegs += s.DataSegsOut
+			}
 		}
 	}
 
@@ -197,8 +208,14 @@ func summarize(samples []Sample) pathSummary {
 		out.P50Ms = percentile(okTotals, 50)
 		out.P95Ms = percentile(okTotals, 95)
 	}
+	if len(okTtfbs) > 0 {
+		out.P50TtfbMs = percentile(okTtfbs, 50)
+	}
 	if out.SampleCount > 0 {
-		out.LossPct = math.Round((1.0-float64(out.OkCount)/float64(out.SampleCount))*10000) / 100
+		out.ErrorPct = math.Round((1.0-float64(out.OkCount)/float64(out.SampleCount))*10000) / 100
+	}
+	if sumSegs > 0 {
+		out.RetransPct = math.Round(float64(sumRetrans)/float64(sumSegs)*10000) / 100
 	}
 	return out
 }

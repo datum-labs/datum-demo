@@ -23,9 +23,15 @@ package_upgrade: false
 packages:
   - ca-certificates
   - curl
-  - gnome-keyring                                                                                                                                                  
-  - libsecret-1-0                                                                                                                                                  
-  - dbus-user-session    
+  - gnome-keyring
+  - libsecret-1-0
+  - dbus-user-session
+%{ if enable_caddy ~}
+  - debian-keyring
+  - debian-archive-keyring
+  - apt-transport-https
+  - gnupg
+%{ endif ~}
 
 write_files:
   # ----------------------------------------------------------------
@@ -123,6 +129,29 @@ write_files:
         DATUMCTL_KEYRING_FILE=/var/lib/demo/.datumctl-keyring.json \
         /usr/local/bin/datumctl "$@"
 
+%{ if enable_caddy ~}
+  # ----------------------------------------------------------------
+  # Caddy reverse-proxies the origin on :443 with Let's Encrypt so
+  # the prober's "direct" probe can negotiate HTTP/2 over TLS. Demo
+  # origin still listens plaintext on 127.0.0.1:8080.
+  # ----------------------------------------------------------------
+  - path: /etc/caddy/Caddyfile
+    permissions: '0644'
+    content: |
+      ${hostname} {
+        encode zstd gzip
+        reverse_proxy 127.0.0.1:8080
+        log {
+          output stdout
+          format console
+        }
+      }
+
+      :80 {
+        redir https://${hostname}{uri} permanent
+      }
+%{ endif ~}
+
 runcmd:
   - install -d -m 0755 -o demo -g demo /var/lib/demo
   - install -d -m 0755 -o demo -g demo /var/lib/demo/.local/share
@@ -130,6 +159,16 @@ runcmd:
   - systemctl daemon-reload
   - systemctl enable demo-origin.service
   # datum-connect.service is intentionally NOT enabled — see FINISH SETUP.
+%{ if enable_caddy ~}
+  - curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/gpg.key' | gpg --dearmor -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg
+  - curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt' | tee /etc/apt/sources.list.d/caddy-stable.list
+  - apt-get update
+  - apt-get install -y caddy
+  - getent group  caddy >/dev/null || groupadd --system caddy
+  - getent passwd caddy >/dev/null || useradd --system --no-create-home --home-dir /var/lib/caddy --shell /usr/sbin/nologin --gid caddy caddy
+  - install -d -m 0750 -o caddy -g caddy /var/lib/caddy
+  - systemctl enable --now caddy
+%{ endif ~}
 
 final_message: |
   Origin box ready. To finish:

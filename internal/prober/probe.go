@@ -6,11 +6,48 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"net"
 	"net/http"
 	"net/http/httptrace"
 	"sync"
+	"sync/atomic"
 	"time"
 )
+
+// tcpInfoSlotKey is the context key under which the active probe stashes
+// an empty TCP_INFO slot. The transport's DialContext wraps the freshly
+// dialed conn in an instrumentedConn that fills the slot from inside its
+// Close() — the only place where the fd is guaranteed to still be open
+// after the response body has been drained.
+type tcpInfoSlotKey struct{}
+
+type tcpInfoSnapshot struct {
+	TotalRetrans uint32
+	DataSegsOut  uint32
+}
+
+type tcpInfoSlot struct {
+	snap atomic.Pointer[tcpInfoSnapshot]
+}
+
+type instrumentedConn struct {
+	net.Conn
+	tcp       *net.TCPConn
+	slot      *tcpInfoSlot
+	closeOnce sync.Once
+}
+
+func (c *instrumentedConn) Close() error {
+	c.closeOnce.Do(func() {
+		if c.tcp == nil || c.slot == nil {
+			return
+		}
+		if rt, ds, ok := readRetrans(c.tcp); ok {
+			c.slot.snap.Store(&tcpInfoSnapshot{TotalRetrans: rt, DataSegsOut: ds})
+		}
+	})
+	return c.Conn.Close()
+}
 
 const (
 	pathDirect = "direct"
@@ -68,17 +105,30 @@ func NewProber(cfg ProberConfig) *Prober {
 		pruneEvery: cfg.PruneEvery,
 		userAgent:  cfg.UserAgent,
 		debug:      cfg.Debug,
-		client: &http.Client{
-			Timeout: cfg.Timeout,
-			Transport: &http.Transport{
-				// Fresh connection per probe so we measure the real path, not
-				// a warm keep-alive.
-				DisableKeepAlives: true,
-				TLSClientConfig:   &tls.Config{MinVersion: tls.VersionTLS12},
-				ForceAttemptHTTP2: true,
-			},
+		client: newProbeClient(cfg.Timeout),
+	}
+}
+
+func newProbeClient(timeout time.Duration) *http.Client {
+	dialer := &net.Dialer{Timeout: timeout, KeepAlive: -1}
+	t := &http.Transport{
+		DisableKeepAlives: true,
+		TLSClientConfig:   &tls.Config{MinVersion: tls.VersionTLS12},
+		ForceAttemptHTTP2: true,
+		DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
+			c, err := dialer.DialContext(ctx, network, addr)
+			if err != nil {
+				return nil, err
+			}
+			tcp, _ := c.(*net.TCPConn)
+			slot, _ := ctx.Value(tcpInfoSlotKey{}).(*tcpInfoSlot)
+			if tcp == nil || slot == nil {
+				return c, nil
+			}
+			return &instrumentedConn{Conn: c, tcp: tcp, slot: slot}, nil
 		},
 	}
+	return &http.Client{Timeout: timeout, Transport: t}
 }
 
 func (p *Prober) Run(ctx context.Context) {
@@ -135,6 +185,9 @@ func (p *Prober) probeOne(ctx context.Context, path, url string) {
 	probeCtx, cancel := context.WithTimeout(ctx, p.timeout)
 	defer cancel()
 
+	slot := new(tcpInfoSlot)
+	probeCtx = context.WithValue(probeCtx, tcpInfoSlotKey{}, slot)
+
 	start := time.Now()
 	var ttfb time.Duration
 	trace := &httptrace.ClientTrace{
@@ -171,29 +224,39 @@ func (p *Prober) probeOne(ctx context.Context, path, url string) {
 		}
 		return
 	}
-	defer resp.Body.Close()
 
-	n, copyErr := io.Copy(io.Discard, resp.Body)
+	_, copyErr := io.Copy(io.Discard, resp.Body)
 	total := time.Since(start)
+	// Close explicitly so our instrumentedConn.Close() runs and fills the
+	// TCP_INFO slot before we read from it. The transport tears the fd
+	// down inside this Close — there's no later chance to read TCP_INFO.
+	_ = resp.Body.Close()
 
 	sample.StatusCode = resp.StatusCode
 	sample.Ok = resp.StatusCode >= 200 && resp.StatusCode < 300 && copyErr == nil
 	sample.TtfbMs = float64(ttfb.Microseconds()) / 1000.0
 	sample.TotalMs = float64(total.Microseconds()) / 1000.0
-	sample.Bytes = n
 	if copyErr != nil {
 		sample.Error = copyErr.Error()
 	}
 
+	if snap := slot.snap.Load(); snap != nil {
+		sample.TotalRetrans = int64(snap.TotalRetrans)
+		sample.DataSegsOut = int64(snap.DataSegsOut)
+	}
+
 	if p.debug {
 		ct := resp.Header.Get("Content-Type")
+		proto := resp.Proto
 		errStr := ""
 		if copyErr != nil {
 			errStr = fmt.Sprintf(" body-err=%v", copyErr)
 		}
-		log.Printf("prober: << %-6s GET %s status=%d ttfb=%.2fms total=%.2fms bytes=%d type=%q%s",
-			path, url, resp.StatusCode,
-			sample.TtfbMs, sample.TotalMs, n, ct, errStr,
+		log.Printf("prober: << %-6s GET %s status=%d proto=%s ttfb=%.2fms total=%.2fms retrans=%d/%d type=%q%s",
+			path, url, resp.StatusCode, proto,
+			sample.TtfbMs, sample.TotalMs,
+			sample.TotalRetrans, sample.DataSegsOut,
+			ct, errStr,
 		)
 	}
 

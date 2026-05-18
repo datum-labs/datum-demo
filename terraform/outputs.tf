@@ -50,3 +50,11 @@ output "ui_url" {
     "http://${hcloud_server.prober.ipv4_address}:8080/"
   )
 }
+
+output "dns_records" {
+  description = "DNS A records that need to exist before Caddy can fetch certificates. Create these manually in whichever zone hosts the domain."
+  value = {
+    prober = var.demo_hostname != "" ? "${var.demo_hostname}     A  ${hcloud_server.prober.ipv4_address}" : "(none — demo_hostname not set)"
+    origin = var.origin_hostname != "" ? "${var.origin_hostname}  A  ${hcloud_server.origin.ipv4_address}" : "(none — origin_hostname not set; direct probe stays on plain HTTP)"
+  }
+}

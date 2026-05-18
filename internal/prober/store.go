@@ -9,15 +9,16 @@ import (
 
 const schema = `
 CREATE TABLE IF NOT EXISTS samples (
-    id          INTEGER PRIMARY KEY AUTOINCREMENT,
-    ts_ms       INTEGER NOT NULL,
-    path        TEXT    NOT NULL CHECK (path IN ('direct','datum')),
-    ok          INTEGER NOT NULL,
-    status_code INTEGER,
-    ttfb_ms     REAL,
-    total_ms    REAL,
-    bytes       INTEGER,
-    error       TEXT
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    ts_ms         INTEGER NOT NULL,
+    path          TEXT    NOT NULL CHECK (path IN ('direct','datum')),
+    ok            INTEGER NOT NULL,
+    status_code   INTEGER,
+    ttfb_ms       REAL,
+    total_ms      REAL,
+    total_retrans INTEGER,
+    data_segs_out INTEGER,
+    error         TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_samples_ts ON samples(ts_ms);
 CREATE INDEX IF NOT EXISTS idx_samples_path_ts ON samples(path, ts_ms);
@@ -25,14 +26,15 @@ CREATE INDEX IF NOT EXISTS idx_samples_path_ts ON samples(path, ts_ms);
 
 // Sample is one probe result for one path.
 type Sample struct {
-	TsMs       int64   `json:"ts_ms"`
-	Path       string  `json:"path"`
-	Ok         bool    `json:"ok"`
-	StatusCode int     `json:"status_code,omitempty"`
-	TtfbMs     float64 `json:"ttfb_ms,omitempty"`
-	TotalMs    float64 `json:"total_ms,omitempty"`
-	Bytes      int64   `json:"bytes,omitempty"`
-	Error      string  `json:"error,omitempty"`
+	TsMs         int64   `json:"ts_ms"`
+	Path         string  `json:"path"`
+	Ok           bool    `json:"ok"`
+	StatusCode   int     `json:"status_code,omitempty"`
+	TtfbMs       float64 `json:"ttfb_ms,omitempty"`
+	TotalMs      float64 `json:"total_ms,omitempty"`
+	TotalRetrans int64   `json:"total_retrans,omitempty"`
+	DataSegsOut  int64   `json:"data_segs_out,omitempty"`
+	Error        string  `json:"error,omitempty"`
 }
 
 type Store struct {
@@ -57,13 +59,14 @@ func (s *Store) Close() error { return s.db.Close() }
 
 func (s *Store) Insert(sample Sample) error {
 	_, err := s.db.Exec(
-		`INSERT INTO samples (ts_ms, path, ok, status_code, ttfb_ms, total_ms, bytes, error)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+		`INSERT INTO samples (ts_ms, path, ok, status_code, ttfb_ms, total_ms, total_retrans, data_segs_out, error)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		sample.TsMs, sample.Path, boolInt(sample.Ok),
 		nullIfZeroInt(sample.StatusCode),
 		nullIfZeroFloat(sample.TtfbMs),
 		nullIfZeroFloat(sample.TotalMs),
-		nullIfZeroInt64(sample.Bytes),
+		nullIfZeroInt64(sample.TotalRetrans),
+		nullIfZeroInt64(sample.DataSegsOut),
 		nullIfEmptyStr(sample.Error),
 	)
 	return err
@@ -71,7 +74,7 @@ func (s *Store) Insert(sample Sample) error {
 
 func (s *Store) Recent(path string, sinceMs int64) ([]Sample, error) {
 	rows, err := s.db.Query(
-		`SELECT ts_ms, ok, status_code, ttfb_ms, total_ms, bytes, error
+		`SELECT ts_ms, ok, status_code, ttfb_ms, total_ms, total_retrans, data_segs_out, error
 		 FROM samples
 		 WHERE path = ? AND ts_ms >= ?
 		 ORDER BY ts_ms ASC`,
@@ -90,10 +93,11 @@ func (s *Store) Recent(path string, sinceMs int64) ([]Sample, error) {
 			sc  sql.NullInt64
 			tt  sql.NullFloat64
 			tot sql.NullFloat64
-			b   sql.NullInt64
+			rt  sql.NullInt64
+			ds  sql.NullInt64
 			er  sql.NullString
 		)
-		if err := rows.Scan(&s.TsMs, &ok, &sc, &tt, &tot, &b, &er); err != nil {
+		if err := rows.Scan(&s.TsMs, &ok, &sc, &tt, &tot, &rt, &ds, &er); err != nil {
 			return nil, err
 		}
 		s.Ok = ok == 1
@@ -106,8 +110,11 @@ func (s *Store) Recent(path string, sinceMs int64) ([]Sample, error) {
 		if tot.Valid {
 			s.TotalMs = tot.Float64
 		}
-		if b.Valid {
-			s.Bytes = b.Int64
+		if rt.Valid {
+			s.TotalRetrans = rt.Int64
+		}
+		if ds.Valid {
+			s.DataSegsOut = ds.Int64
 		}
 		if er.Valid {
 			s.Error = er.String

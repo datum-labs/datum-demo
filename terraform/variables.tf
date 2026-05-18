@@ -53,6 +53,12 @@ variable "origin_payload_bytes" {
   default     = 4096
 }
 
+variable "origin_hostname" {
+  description = "Public hostname for the origin (e.g. origin.demo.datum.shippingbytes.com). If set, Caddy fronts the origin on :443 with Let's Encrypt and the prober's 'direct' target becomes https://<hostname>/ so it can negotiate HTTP/2. Leave blank to keep plain HTTP on :8080. DNS for this hostname must be pointed at origin's IPv4 manually."
+  type        = string
+  default     = ""
+}
+
 # ------------------------------------------------------------------------
 # SSH access
 # ------------------------------------------------------------------------

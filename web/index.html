@@ -21,19 +21,21 @@
       <p class="column__sub">Public internet · scenic BGP · no observability</p>
       <div class="metric">
         <div class="metric__value" id="direct-current">—</div>
-        <div class="metric__unit">ms total</div>
+        <div class="metric__unit" title="Total time for the most recent probe: DNS + TCP + TLS + server response + body transfer. Shown only when the latest probe succeeded.">ms total</div>
       </div>
       <div class="stats">
-        <div><span class="stats__label">p50</span><span id="direct-p50">—</span></div>
-        <div><span class="stats__label">p95</span><span id="direct-p95">—</span></div>
-        <div><span class="stats__label">loss</span><span id="direct-loss">—</span></div>
+        <div><span class="stats__label" title="Median total response time over the last 5 minutes (successful probes only).">p50</span><span id="direct-p50">—</span></div>
+        <div><span class="stats__label" title="95th-percentile total response time over the last 5 minutes (successful probes only). Captures tail latency.">p95</span><span id="direct-p95">—</span></div>
+        <div><span class="stats__label" title="Median time to first byte over the last 5 minutes: DNS + TCP + TLS + first response byte, excluding body transfer.">ttfb</span><span id="direct-ttfb">—</span></div>
+        <div><span class="stats__label" title="Real packet loss on the outbound leg: TCP retransmits ÷ data segments the prober sent (request packets), aggregated over the last 5 minutes. Read from Linux TCP_INFO at connection close. Response-side packet loss is not measured here — the kernel only counts retransmits for data it sent itself.">loss</span><span id="direct-loss">—</span></div>
+        <div><span class="stats__label" title="Percentage of probes in the last 5 minutes that did not return 2xx or whose body failed to read. NOT packet loss — see the loss column for that.">errors</span><span id="direct-errors">—</span></div>
       </div>
       <svg class="spark" id="direct-spark" viewBox="0 0 200 60" preserveAspectRatio="none" aria-hidden="true">
         <polyline class="spark__line" points="" />
       </svg>
       <div class="meta">
-        <div><span class="meta__label">target</span> <span id="direct-target" class="meta__url">—</span></div>
-        <div><span class="meta__label">samples</span> <span id="direct-count">0</span></div>
+        <div><span class="meta__label" title="URL the prober hits over the public internet for this path.">target</span> <span id="direct-target" class="meta__url">—</span></div>
+        <div><span class="meta__label" title="Number of probes captured in the last 5 minutes (one every 5 seconds).">samples</span> <span id="direct-count">0</span></div>
       </div>
     </section>
 
@@ -42,19 +44,21 @@
       <p class="column__sub">QUIC tunnel · optimized backbone · OTel</p>
       <div class="metric">
         <div class="metric__value" id="datum-current">—</div>
-        <div class="metric__unit">ms total</div>
+        <div class="metric__unit" title="Total time for the most recent probe: DNS + TCP + TLS + server response + body transfer. Shown only when the latest probe succeeded.">ms total</div>
       </div>
       <div class="stats">
-        <div><span class="stats__label">p50</span><span id="datum-p50">—</span></div>
-        <div><span class="stats__label">p95</span><span id="datum-p95">—</span></div>
-        <div><span class="stats__label">loss</span><span id="datum-loss">—</span></div>
+        <div><span class="stats__label" title="Median total response time over the last 5 minutes (successful probes only).">p50</span><span id="datum-p50">—</span></div>
+        <div><span class="stats__label" title="95th-percentile total response time over the last 5 minutes (successful probes only). Captures tail latency.">p95</span><span id="datum-p95">—</span></div>
+        <div><span class="stats__label" title="Median time to first byte over the last 5 minutes: DNS + TCP + TLS + first response byte, excluding body transfer.">ttfb</span><span id="datum-ttfb">—</span></div>
+        <div><span class="stats__label" title="Real packet loss on the outbound leg: TCP retransmits ÷ data segments the prober sent (request packets), aggregated over the last 5 minutes. Read from Linux TCP_INFO at connection close. Response-side packet loss is not measured here — the kernel only counts retransmits for data it sent itself.">loss</span><span id="datum-loss">—</span></div>
+        <div><span class="stats__label" title="Percentage of probes in the last 5 minutes that did not return 2xx or whose body failed to read. NOT packet loss — see the loss column for that.">errors</span><span id="datum-errors">—</span></div>
       </div>
       <svg class="spark" id="datum-spark" viewBox="0 0 200 60" preserveAspectRatio="none" aria-hidden="true">
         <polyline class="spark__line" points="" />
       </svg>
       <div class="meta">
-        <div><span class="meta__label">target</span> <span id="datum-target" class="meta__url">—</span></div>
-        <div><span class="meta__label">samples</span> <span id="datum-count">0</span></div>
+        <div><span class="meta__label" title="URL the prober hits over the Datum path for this column.">target</span> <span id="datum-target" class="meta__url">—</span></div>
+        <div><span class="meta__label" title="Number of probes captured in the last 5 minutes (one every 5 seconds).">samples</span> <span id="datum-count">0</span></div>
       </div>
       <div class="banner" id="datum-banner" hidden>Datum tunnel offline</div>
     </section>

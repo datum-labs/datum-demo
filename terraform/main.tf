@@ -81,6 +81,18 @@ resource "hcloud_firewall" "origin" {
   rule {
     direction  = "in"
     protocol   = "tcp"
+    port       = "80"
+    source_ips = ["0.0.0.0/0", "::/0"]
+  }
+  rule {
+    direction  = "in"
+    protocol   = "tcp"
+    port       = "443"
+    source_ips = ["0.0.0.0/0", "::/0"]
+  }
+  rule {
+    direction  = "in"
+    protocol   = "tcp"
     port       = "8080"
     source_ips = ["0.0.0.0/0", "::/0"]
   }
@@ -117,6 +129,8 @@ resource "hcloud_server" "origin" {
 
   user_data = templatefile("${path.module}/cloud-init-origin.yaml", {
     payload_bytes = var.origin_payload_bytes
+    hostname      = var.origin_hostname
+    enable_caddy  = var.origin_hostname != ""
   })
 }
 
@@ -154,11 +168,15 @@ locals {
     managed = "terraform"
   }
 
-  # Auto-compute the "direct" URL from the origin's public IP unless the
-  # caller overrode it (handy for testing against a third-party origin).
+  # Auto-compute the "direct" URL. Precedence:
+  #   1. explicit var.target_direct_url override
+  #   2. https://<origin_hostname>/ when origin_hostname is set (TLS via Caddy → HTTP/2 negotiable)
+  #   3. http://<origin-ip>:8080/  (plain HTTP/1.1 to demo-origin, when no hostname is configured)
   target_direct_url = (
     var.target_direct_url != null && var.target_direct_url != ""
     ? var.target_direct_url
+    : var.origin_hostname != ""
+    ? "https://${var.origin_hostname}/"
     : "http://${hcloud_server.origin.ipv4_address}:8080/"
   )
 }
