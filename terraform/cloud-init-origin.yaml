@@ -6,16 +6,14 @@
 # 2. `datum-connect tunnel listen` as systemd unit datum-connect.service (disabled)
 # 3. `datumctl` available on PATH for ad-hoc inspection
 #
+# Both services run as root. datumctl reads its session from $HOME/.datumctl,
+# so a single `datumctl login` on the box just works. Datum-connect state
+# (the repo it materialises) lives under /var/lib/demo; root-owned datumctl
+# state (session + keyring JSON) lives under /root.
+#
 # Binaries are scp'd by ../deploy.sh after the box is up. demo-origin starts
 # as soon as the binary lands. datum-connect.service waits until you SSH in
 # and authenticate — see the "FINISH SETUP" steps at the bottom.
-
-users:
-  - name: demo
-    system: true
-    shell: /bin/bash      # need a real shell for sudo -u demo -i auth flow
-    home: /var/lib/demo
-    create_home: true
 
 package_update: true
 package_upgrade: false
@@ -47,16 +45,14 @@ write_files:
 
       [Service]
       Type=simple
-      User=demo
-      Group=demo
       ExecStart=/usr/local/bin/demo origin --listen :8080 --payload-bytes ${payload_bytes}
       Restart=on-failure
       RestartSec=2s
       WorkingDirectory=/var/lib/demo
+      StateDirectory=demo
 
       NoNewPrivileges=true
       ProtectSystem=strict
-      ProtectHome=true
       PrivateTmp=true
 
       [Install]
@@ -77,14 +73,11 @@ write_files:
 
       [Service]
       Type=simple
-      User=demo
-      Group=demo
       WorkingDirectory=/var/lib/demo
-      Environment=HOME=/var/lib/demo
-      Environment=XDG_DATA_HOME=/var/lib/demo/.local/share
       Environment=DATUM_CONNECT_REPO=/var/lib/demo/datum-connect
-      # Wrapped via with-keyring because datum-connect shells out to
-      # `datumctl get-auth`, which reads from org.freedesktop.secrets.
+      # datumctl needs a non-D-Bus keyring on a headless box; this env var
+      # makes it persist tokens in a JSON file instead of org.freedesktop.secrets.
+      Environment=DATUMCTL_KEYRING_FILE=/root/.datumctl-keyring.json
       ExecStart=/usr/local/bin/datum-connect tunnel listen \
         --endpoint 127.0.0.1:8080 \
         --label demo-origin \
@@ -92,41 +85,31 @@ write_files:
       Restart=on-failure
       RestartSec=10s
 
-      # No ProtectSystem=strict here — datum-connect writes to
-      # $DATUM_CONNECT_REPO under /var/lib/demo, which we explicitly allow.
-      ProtectHome=false
       ReadWritePaths=/var/lib/demo
 
       [Install]
       WantedBy=multi-user.target
 
   # ----------------------------------------------------------------
-  # Convenience: a short script that wraps `sudo -u demo -i` so the
-  # operator can authenticate as the right user without thinking.
+  # Thin wrappers that set the same env the systemd unit uses so manual
+  # invocations from a root shell see the same state. Running as root,
+  # so no sudo.
   # ----------------------------------------------------------------
   - path: /usr/local/bin/datum-auth
     permissions: '0755'
     content: |
       #!/usr/bin/env bash
-      # Run datum-connect commands as the demo user. DATUMCTL_KEYRING_FILE
-      # makes datumctl (which datum-connect shells out to) use a JSON file
-      # instead of org.freedesktop.secrets, so no D-Bus session is needed.
-      exec sudo -u demo -i \
-        HOME=/var/lib/demo \
-        XDG_DATA_HOME=/var/lib/demo/.local/share \
+      exec env \
         DATUM_CONNECT_REPO=/var/lib/demo/datum-connect \
-        DATUMCTL_KEYRING_FILE=/var/lib/demo/.datumctl-keyring.json \
+        DATUMCTL_KEYRING_FILE=/root/.datumctl-keyring.json \
         /usr/local/bin/datum-connect "$@"
 
   - path: /usr/local/bin/datumctl-auth
     permissions: '0755'
     content: |
       #!/usr/bin/env bash
-      # Direct datumctl invocations (e.g. `datumctl-auth auth login`).
-      exec sudo -u demo -i \
-        HOME=/var/lib/demo \
-        XDG_DATA_HOME=/var/lib/demo/.local/share \
-        DATUMCTL_KEYRING_FILE=/var/lib/demo/.datumctl-keyring.json \
+      exec env \
+        DATUMCTL_KEYRING_FILE=/root/.datumctl-keyring.json \
         /usr/local/bin/datumctl "$@"
 
 %{ if enable_caddy ~}
@@ -153,9 +136,8 @@ write_files:
 %{ endif ~}
 
 runcmd:
-  - install -d -m 0755 -o demo -g demo /var/lib/demo
-  - install -d -m 0755 -o demo -g demo /var/lib/demo/.local/share
-  - install -d -m 0755 -o demo -g demo /var/lib/demo/datum-connect
+  - install -d -m 0755 /var/lib/demo
+  - install -d -m 0755 /var/lib/demo/datum-connect
   - systemctl daemon-reload
   - systemctl enable demo-origin.service
   # datum-connect.service is intentionally NOT enabled — see FINISH SETUP.
@@ -176,8 +158,9 @@ final_message: |
     # On your laptop, ship the binaries:
     ./deploy.sh                       # ships demo, datumctl, datum-connect
 
-    # Then SSH in and authenticate. The keyring wrapper handles the
-    # org.freedesktop.secrets bootstrap that datumctl needs on a headless box.
+    # Then SSH in (as root) and authenticate. The wrappers set
+    # DATUMCTL_KEYRING_FILE so datumctl persists tokens to a JSON file
+    # instead of needing org.freedesktop.secrets on this headless box.
     ssh root@<this-box-ip>
     datumctl-auth auth login              # browser device-code flow
     datum-auth projects                   # pick the project

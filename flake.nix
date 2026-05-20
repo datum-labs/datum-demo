@@ -27,7 +27,11 @@
   outputs = { self, nixpkgs, flake-utils, datumctl, app, ... }:
     flake-utils.lib.eachDefaultSystem (system:
       let
-        pkgs = import nixpkgs { inherit system; };
+        pkgs = import nixpkgs {
+          inherit system;
+          config.allowUnfreePredicate = pkg:
+            builtins.elem (pkgs.lib.getName pkg) [ "terraform" ];
+        };
 
         # ------------------------------------------------------------------
         # Our demo binary (prober + origin)
@@ -36,7 +40,7 @@
           pname = "demo";
           version = "0.1.0";
           src = ./.;
-          vendorHash = "sha256-P7Viwr2hrzrVCac04v9NNePGgLsXQfiEoMe3nIVjkio=";
+          vendorHash = "sha256-THXY2JU+a6A/P9OGb6M2nqx3WqT/rdGmpcF1LVod8No=";
           env.CGO_ENABLED = "0";
           ldflags = [ "-s" "-w" ];
           subPackages = [ "cmd/demo" ];

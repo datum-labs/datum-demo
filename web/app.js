@@ -7,6 +7,12 @@
     statusBox: document.getElementById("status"),
     statusText: document.getElementById("status-text"),
     proberInfo: document.getElementById("prober-info"),
+    directAction: document.getElementById("direct-action"),
+    datumAction: document.getElementById("datum-action"),
+    basicAuthSwitch: document.getElementById("basic-auth-switch"),
+    basicAuthForm: document.getElementById("basic-auth-form"),
+    basicAuthMsg: document.getElementById("basic-auth-msg"),
+    basicAuthStatus: document.getElementById("basic-auth-status"),
     direct: {
       column: document.querySelector(".column--internet"),
       current: document.getElementById("direct-current"),
@@ -113,10 +119,104 @@
       if (data.prober_started_at) {
         els.proberInfo.textContent = `prober up since ${new Date(data.prober_started_at).toLocaleTimeString()}`;
       }
+
+      applyDatumControl(Boolean(data.datum_control_enabled));
     } catch (err) {
       setStatus("bad", `error: ${err.message}`);
     }
   }
+
+  let datumControlShown = null;
+  function applyDatumControl(available) {
+    if (datumControlShown === available) return;
+    datumControlShown = available;
+    els.directAction.hidden = !available;
+    els.datumAction.hidden = !available;
+    if (available) refreshBasicAuth();
+  }
+
+  function renderBasicAuth(state) {
+    const enabled = Boolean(state.enabled);
+    els.basicAuthSwitch.classList.toggle("action__switch--on", enabled);
+    els.basicAuthSwitch.classList.toggle("action__switch--off", !enabled);
+    els.basicAuthSwitch.setAttribute("aria-checked", enabled ? "true" : "false");
+    if (enabled) {
+      els.basicAuthForm.hidden = true;
+      els.basicAuthStatus.hidden = false;
+      els.basicAuthStatus.textContent = `enabled · user "${state.username || ""}"`;
+    } else {
+      els.basicAuthForm.hidden = false;
+      els.basicAuthStatus.hidden = true;
+      els.basicAuthStatus.textContent = "";
+    }
+  }
+
+  async function refreshBasicAuth() {
+    try {
+      const r = await fetch("/api/policy/basic-auth", { cache: "no-store" });
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      renderBasicAuth(await r.json());
+    } catch (err) {
+      els.basicAuthMsg.textContent = `status error: ${err.message}`;
+    }
+  }
+
+  function setBusy(busy) {
+    els.basicAuthSwitch.disabled = busy;
+    els.basicAuthForm
+      .querySelectorAll("input, button")
+      .forEach((n) => (n.disabled = busy));
+  }
+
+  els.basicAuthSwitch.addEventListener("click", async () => {
+    // If currently enabled, the switch disables. If currently disabled, the
+    // switch just reveals the form (user submits creds to actually enable).
+    const enabled = els.basicAuthSwitch.classList.contains("action__switch--on");
+    if (!enabled) {
+      els.basicAuthForm.hidden = false;
+      const u = els.basicAuthForm.querySelector("input[name=username]");
+      if (u) u.focus();
+      return;
+    }
+    setBusy(true);
+    els.basicAuthMsg.textContent = "disabling…";
+    try {
+      const r = await fetch("/api/policy/basic-auth", { method: "DELETE" });
+      if (!r.ok) throw new Error(await r.text());
+      renderBasicAuth(await r.json());
+      els.basicAuthMsg.textContent = "disabled";
+    } catch (err) {
+      els.basicAuthMsg.textContent = `error: ${err.message}`;
+    } finally {
+      setBusy(false);
+    }
+  });
+
+  els.basicAuthForm.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const fd = new FormData(els.basicAuthForm);
+    const body = {
+      username: String(fd.get("username") || ""),
+      password: String(fd.get("password") || ""),
+    };
+    setBusy(true);
+    els.basicAuthMsg.textContent = "applying…";
+    try {
+      const r = await fetch("/api/policy/basic-auth", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      if (!r.ok) throw new Error(await r.text());
+      renderBasicAuth(await r.json());
+      els.basicAuthMsg.textContent = "enabled";
+      els.basicAuthForm.reset();
+    } catch (err) {
+      els.basicAuthMsg.textContent = `error: ${err.message}`;
+    } finally {
+      setBusy(false);
+    }
+  });
 
   tick();
   setInterval(tick, REFRESH_MS);

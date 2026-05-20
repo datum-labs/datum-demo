@@ -10,6 +10,7 @@ import (
 	"syscall"
 	"time"
 
+	"demo.datum.net/internal/datumapi"
 	"demo.datum.net/internal/origin"
 	"demo.datum.net/internal/prober"
 	"demo.datum.net/web"
@@ -18,8 +19,9 @@ import (
 const usage = `demo — split-path prober and sample origin for demo.datum.net
 
 Usage:
-  demo prober [flags]    run the probing service + web UI
-  demo origin [flags]    run the fixed-JSON origin
+  demo prober [flags]      run the probing service + web UI
+  demo origin [flags]      run the fixed-JSON origin
+  demo datum-smoke [flags] verify Datum control-plane auth/connectivity
   demo version
 
 Run a subcommand with -h to see its flags.
@@ -43,6 +45,8 @@ func main() {
 		err = runProber(ctx, args)
 	case "origin":
 		err = runOrigin(ctx, args)
+	case "datum-smoke":
+		err = runDatumSmoke(ctx, args)
 	case "version":
 		fmt.Println("demo 0.1.0")
 	case "-h", "--help", "help":
@@ -68,6 +72,9 @@ func runProber(ctx context.Context, args []string) error {
 	retention := fs.Duration("retention", 7*24*time.Hour, "How long to keep samples in the database")
 	pruneEvery := fs.Duration("prune-every", time.Hour, "How often to prune old samples")
 	debug := fs.Bool("debug", false, "Log every outgoing probe request/response and every incoming UI/API request")
+	datumKubeconfig := fs.String("datum-kubeconfig", "", "Path to a Datum kubeconfig. If empty, basic-auth controls are hidden in the UI.")
+	tunnelNamespace := fs.String("datum-tunnel-namespace", "default", "Namespace of the Datum tunnel HTTPRoute")
+	tunnelName := fs.String("datum-tunnel-name", "", "Name of the Datum tunnel HTTPRoute the SecurityPolicy should attach to (required with --datum-kubeconfig)")
 	_ = fs.Parse(args)
 
 	if *directURL == "" || *datumURL == "" {
@@ -75,11 +82,28 @@ func runProber(ctx context.Context, args []string) error {
 		return fmt.Errorf("both --target-direct and --target-datum are required")
 	}
 
+	var datumClient *datumapi.Client
+	if *datumKubeconfig != "" {
+		if *tunnelName == "" {
+			return fmt.Errorf("--datum-tunnel-name is required when --datum-kubeconfig is set")
+		}
+		c, err := datumapi.New(*datumKubeconfig)
+		if err != nil {
+			return fmt.Errorf("datum kubeconfig: %w", err)
+		}
+		datumClient = c
+		log.Printf("prober: datum control plane enabled (tunnel=%s/%s)", *tunnelNamespace, *tunnelName)
+	} else {
+		log.Printf("prober: --datum-kubeconfig not set; basic-auth controls disabled")
+	}
+
 	store, err := prober.OpenStore(*dbPath)
 	if err != nil {
 		return err
 	}
 	defer store.Close()
+
+	auth := prober.NewBasicAuthState()
 
 	p := prober.NewProber(prober.ProberConfig{
 		Store:      store,
@@ -90,15 +114,20 @@ func runProber(ctx context.Context, args []string) error {
 		Retention:  *retention,
 		PruneEvery: *pruneEvery,
 		Debug:      *debug,
+		BasicAuth:  auth,
 	})
 
 	srv := prober.NewServer(prober.APIConfig{
-		Listen:    *listen,
-		Store:     store,
-		DirectURL: *directURL,
-		DatumURL:  *datumURL,
-		Web:       web.FS(),
-		Debug:     *debug,
+		Listen:          *listen,
+		Store:           store,
+		DirectURL:       *directURL,
+		DatumURL:        *datumURL,
+		Web:             web.FS(),
+		Debug:           *debug,
+		Datum:           datumClient,
+		TunnelNamespace: *tunnelNamespace,
+		TunnelName:      *tunnelName,
+		BasicAuth:       auth,
 	})
 
 	errCh := make(chan error, 2)
@@ -110,6 +139,29 @@ func runProber(ctx context.Context, args []string) error {
 		return err
 	}
 	<-errCh
+	return nil
+}
+
+func runDatumSmoke(ctx context.Context, args []string) error {
+	fs := flag.NewFlagSet("datum-smoke", flag.ExitOnError)
+	kubeconfig := fs.String("kubeconfig", "", "Path to the Datum kubeconfig (from `datumctl auth update-kubeconfig`)")
+	namespace := fs.String("namespace", "default", "Namespace to probe")
+	_ = fs.Parse(args)
+
+	if *kubeconfig == "" {
+		fs.Usage()
+		return fmt.Errorf("--kubeconfig is required")
+	}
+
+	client, err := datumapi.New(*kubeconfig)
+	if err != nil {
+		return err
+	}
+	n, err := client.Smoke(ctx, *namespace)
+	if err != nil {
+		return err
+	}
+	fmt.Printf("ok: listed SecurityPolicies in namespace %q (got %d item(s))\n", *namespace, n)
 	return nil
 }
 

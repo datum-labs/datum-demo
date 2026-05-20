@@ -7,7 +7,7 @@ import (
 	"io/fs"
 )
 
-//go:embed index.html app.js styles.css
+//go:embed index.html app.js styles.css datum-light.svg datum-dark.svg fonts
 var assets embed.FS
 
 // FS returns the embedded UI filesystem rooted at the web/ directory.

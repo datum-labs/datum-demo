@@ -1,19 +1,15 @@
 #cloud-config
 # Cloud-init for the demo.datum.net prober box.
 #
-# - Creates a system user `demo` that owns /var/lib/demo (sqlite db lives here).
-# - Drops a systemd unit that runs `/usr/local/bin/demo prober`. The binary
-#   itself is NOT installed here — scp it via ../deploy.sh after the box
-#   comes up, then `systemctl start demo-prober`.
+# - Drops a systemd unit that runs `/usr/local/bin/demo prober` as root.
+#   /var/lib/demo (sqlite db) is provisioned via StateDirectory=.
+#   We run as root deliberately: datumctl's exec credential plugin reads
+#   its session from $HOME/.datumctl, and running as root keeps $HOME at
+#   /root so a single `datumctl login` on the box just works.
+# - The binary itself is NOT installed here — scp it via ../deploy.sh
+#   after the box comes up, then `systemctl start demo-prober`.
 # - If a public hostname was passed in, installs Caddy and points it at the
 #   prober on :8080 with auto-Let's-Encrypt.
-
-users:
-  - name: demo
-    system: true
-    shell: /usr/sbin/nologin
-    home: /var/lib/demo
-    create_home: true
 
 package_update: true
 package_upgrade: false
@@ -40,24 +36,28 @@ write_files:
 
       [Service]
       Type=simple
-      User=demo
-      Group=demo
+      # Runs as root. $HOME is /root, so datumctl's exec credential plugin
+      # finds its session at /root/.datumctl (the same place a one-shot
+      # `datumctl login` on this box writes to).
       ExecStart=/usr/local/bin/demo prober \
         --listen 127.0.0.1:8080 \
         --target-direct ${target_direct} \
         --target-datum ${target_datum} \
         --db /var/lib/demo/prober.db \
-        --interval 5s
+        --interval 5s%{ if enable_datum_control } \
+        --datum-kubeconfig /var/lib/demo/kubeconfig.yaml \
+        --datum-tunnel-namespace ${datum_tunnel_namespace} \
+        --datum-tunnel-name ${datum_tunnel_name}%{ endif }
       Restart=on-failure
       RestartSec=2s
       WorkingDirectory=/var/lib/demo
       StateDirectory=demo
       StateDirectoryMode=0750
 
-      # Hardening
+      # Hardening. ProtectHome is intentionally omitted — datumctl reads its
+      # session out of /root/.datumctl, which ProtectHome=true would mask.
       NoNewPrivileges=true
       ProtectSystem=strict
-      ProtectHome=true
       PrivateTmp=true
       ReadWritePaths=/var/lib/demo
 
@@ -84,7 +84,6 @@ write_files:
 %{ endif ~}
 
 runcmd:
-  - install -d -m 0750 -o demo -g demo /var/lib/demo
   - systemctl daemon-reload
   - systemctl enable demo-prober.service
 %{ if enable_caddy ~}
@@ -108,3 +107,25 @@ final_message: |
     ./deploy.sh root@<this-box-ip>
 
   That builds the binary with nix and starts the service.
+
+%{ if enable_datum_control ~}
+  The unit is wired with --datum-kubeconfig, so the With-Datum 'Basic auth'
+  toggle expects two extra artefacts (run these as root on this box):
+
+    1. Log datumctl in (writes its session to /root/.datumctl/):
+
+         datumctl login --credentials /path/to/sa.json \
+           --hostname auth.datum.net
+         datumctl auth list   # verify
+
+    2. Generate the kubeconfig the prober will consume:
+
+         datumctl auth update-kubeconfig --project <project> \
+           --hostname api.datum.net \
+           --kubeconfig /var/lib/demo/kubeconfig.yaml
+
+       The --hostname flag is required — without it datumctl emits a buggy
+       'https://https://...' server URL.
+
+  Once both are in place: systemctl restart demo-prober.service.
+%{ endif ~}

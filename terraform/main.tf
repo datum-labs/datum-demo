@@ -149,10 +149,13 @@ resource "hcloud_server" "prober" {
   labels = merge(local.labels, { role = "prober" })
 
   user_data = templatefile("${path.module}/cloud-init-prober.yaml", {
-    target_direct = local.target_direct_url
-    target_datum  = var.target_datum_url
-    hostname      = var.demo_hostname
-    enable_caddy  = var.demo_hostname != ""
+    target_direct          = local.target_direct_url
+    target_datum           = var.target_datum_url
+    hostname               = var.demo_hostname
+    enable_caddy           = var.demo_hostname != ""
+    enable_datum_control   = var.datum_tunnel_name != ""
+    datum_tunnel_name      = var.datum_tunnel_name
+    datum_tunnel_namespace = var.datum_tunnel_namespace
   })
 
   network {

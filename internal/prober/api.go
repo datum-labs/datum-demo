@@ -11,17 +11,22 @@ import (
 	"sort"
 	"time"
 
+	"demo.datum.net/internal/datumapi"
 	"demo.datum.net/internal/httpdebug"
 )
 
 const summaryWindow = 5 * time.Minute
 
 type apiServer struct {
-	store     *Store
-	directURL string
-	datumURL  string
-	web       fs.FS
-	startedAt time.Time
+	store           *Store
+	directURL       string
+	datumURL        string
+	web             fs.FS
+	startedAt       time.Time
+	datum           *datumapi.Client
+	tunnelNamespace string
+	tunnelName      string
+	auth            *BasicAuthState
 }
 
 type metricsResponse struct {
@@ -29,9 +34,20 @@ type metricsResponse struct {
 	ProberStartedAt string      `json:"prober_started_at"`
 	SummaryWindowS  int         `json:"summary_window_s"`
 	DatumPathDown   bool        `json:"datum_path_down"`
+	DatumControl    bool        `json:"datum_control_enabled"`
 	Targets         targetsInfo `json:"targets"`
 	Direct          pathSummary `json:"direct"`
 	Datum           pathSummary `json:"datum"`
+}
+
+type basicAuthStatus struct {
+	Enabled  bool   `json:"enabled"`
+	Username string `json:"username,omitempty"`
+}
+
+type basicAuthRequest struct {
+	Username string `json:"username"`
+	Password string `json:"password"`
 }
 
 type targetsInfo struct {
@@ -71,20 +87,32 @@ type APIConfig struct {
 	DatumURL  string
 	Web       fs.FS // static UI assets, served at /
 	Debug     bool
+	// Datum, if non-nil, enables the basic-auth policy endpoints. When nil
+	// they return 503 and /api/metrics reports datum_control_enabled=false
+	// so the UI can hide the controls.
+	Datum           *datumapi.Client
+	TunnelNamespace string
+	TunnelName      string
+	BasicAuth       *BasicAuthState
 }
 
 func NewServer(cfg APIConfig) *Server {
 	api := &apiServer{
-		store:     cfg.Store,
-		directURL: cfg.DirectURL,
-		datumURL:  cfg.DatumURL,
-		web:       cfg.Web,
-		startedAt: time.Now(),
+		store:           cfg.Store,
+		directURL:       cfg.DirectURL,
+		datumURL:        cfg.DatumURL,
+		web:             cfg.Web,
+		startedAt:       time.Now(),
+		datum:           cfg.Datum,
+		tunnelNamespace: cfg.TunnelNamespace,
+		tunnelName:      cfg.TunnelName,
+		auth:            cfg.BasicAuth,
 	}
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/api/metrics", api.handleMetrics)
 	mux.HandleFunc("/api/health", api.handleHealth)
+	mux.HandleFunc("/api/policy/basic-auth", api.handleBasicAuth)
 	if cfg.Web != nil {
 		mux.Handle("/", http.FileServer(http.FS(cfg.Web)))
 	}
@@ -159,11 +187,70 @@ func (a *apiServer) handleMetrics(w http.ResponseWriter, _ *http.Request) {
 		Direct:        summarize(direct),
 		Datum:         summarize(datum),
 		DatumPathDown: pathDown(datum),
+		DatumControl:  a.datum != nil,
 	}
 
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Cache-Control", "no-store")
 	_ = json.NewEncoder(w).Encode(resp)
+}
+
+func (a *apiServer) handleBasicAuth(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case http.MethodGet:
+		enabled, user, _ := a.auth.Snapshot()
+		writeJSON(w, http.StatusOK, basicAuthStatus{Enabled: enabled, Username: user})
+		return
+	case http.MethodPut, http.MethodDelete:
+		// fall through
+	default:
+		w.Header().Set("Allow", "GET, PUT, DELETE")
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	if a.datum == nil {
+		http.Error(w, "datum control plane not configured", http.StatusServiceUnavailable)
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
+	defer cancel()
+
+	switch r.Method {
+	case http.MethodPut:
+		var body basicAuthRequest
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			http.Error(w, "invalid JSON: "+err.Error(), http.StatusBadRequest)
+			return
+		}
+		if body.Username == "" || body.Password == "" {
+			http.Error(w, "username and password are required", http.StatusBadRequest)
+			return
+		}
+		if err := a.datum.EnableBasicAuth(ctx, a.tunnelNamespace, a.tunnelName, body.Username, body.Password); err != nil {
+			log.Printf("api: enable basic auth: %v", err)
+			http.Error(w, err.Error(), http.StatusBadGateway)
+			return
+		}
+		a.auth.Set(body.Username, body.Password)
+		writeJSON(w, http.StatusOK, basicAuthStatus{Enabled: true, Username: body.Username})
+	case http.MethodDelete:
+		if err := a.datum.DisableBasicAuth(ctx, a.tunnelNamespace, a.tunnelName); err != nil {
+			log.Printf("api: disable basic auth: %v", err)
+			http.Error(w, err.Error(), http.StatusBadGateway)
+			return
+		}
+		a.auth.Clear()
+		writeJSON(w, http.StatusOK, basicAuthStatus{Enabled: false})
+	}
+}
+
+func writeJSON(w http.ResponseWriter, status int, body any) {
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", "no-store")
+	w.WriteHeader(status)
+	_ = json.NewEncoder(w).Encode(body)
 }
 
 func summarize(samples []Sample) pathSummary {

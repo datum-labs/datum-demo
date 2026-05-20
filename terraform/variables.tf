@@ -92,3 +92,18 @@ variable "demo_hostname" {
   type        = string
   default     = ""
 }
+
+# ------------------------------------------------------------------------
+# Datum control plane (basic-auth toggle)
+# ------------------------------------------------------------------------
+variable "datum_tunnel_name" {
+  description = "Name of the Datum tunnel HTTPRoute the SecurityPolicy should attach to (e.g. tunnel-vdnmd). When empty, the prober runs without --datum-kubeconfig and the With-Datum 'Basic auth' action is hidden in the UI. When set, the prober ALSO requires two runtime artefacts dropped on the box: /var/lib/demo/kubeconfig.yaml plus a logged-in datumctl session at /var/lib/demo/.datumctl/ — see final_message."
+  type        = string
+  default     = ""
+}
+
+variable "datum_tunnel_namespace" {
+  description = "Namespace of the Datum tunnel HTTPRoute. Datum currently only supports 'default'."
+  type        = string
+  default     = "default"
+}

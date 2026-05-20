@@ -65,6 +65,7 @@ type Prober struct {
 	pruneEvery time.Duration
 	userAgent  string
 	debug      bool
+	auth       *BasicAuthState
 }
 
 type ProberConfig struct {
@@ -77,6 +78,9 @@ type ProberConfig struct {
 	PruneEvery time.Duration
 	UserAgent  string
 	Debug      bool
+	// BasicAuth, if non-nil, is consulted before each Datum probe; when its
+	// snapshot reports enabled, the prober adds an Authorization header.
+	BasicAuth *BasicAuthState
 }
 
 func NewProber(cfg ProberConfig) *Prober {
@@ -105,7 +109,8 @@ func NewProber(cfg ProberConfig) *Prober {
 		pruneEvery: cfg.PruneEvery,
 		userAgent:  cfg.UserAgent,
 		debug:      cfg.Debug,
-		client: newProbeClient(cfg.Timeout),
+		auth:       cfg.BasicAuth,
+		client:     newProbeClient(cfg.Timeout),
 	}
 }
 
@@ -208,6 +213,11 @@ func (p *Prober) probeOne(ctx context.Context, path, url string) {
 	}
 	req.Header.Set("User-Agent", p.userAgent)
 	req.Header.Set("Accept", "application/json,*/*")
+	if path == pathDatum && p.auth != nil {
+		if enabled, user, pw := p.auth.Snapshot(); enabled {
+			req.SetBasicAuth(user, pw)
+		}
+	}
 
 	if p.debug {
 		log.Printf("prober: >> %-6s GET %s ua=%q", path, url, p.userAgent)

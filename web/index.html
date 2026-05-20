@@ -3,22 +3,60 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>demo.datum.net</title>
+  <title>demo.datum.net — Datum Cloud live demo</title>
   <link rel="stylesheet" href="/styles.css" />
 </head>
 <body>
   <header class="topbar">
-    <div class="brand">demo.datum.net</div>
+    <div class="brand">
+      <img src="/datum-dark.svg" alt="Datum" class="brand__logo" />
+      <span class="brand__tag">demo.datum.net</span>
+    </div>
     <div class="status" id="status">
       <span class="dot" id="status-dot"></span>
       <span id="status-text">connecting…</span>
     </div>
   </header>
 
+  <section class="intro">
+    <p class="intro__eyebrow">Live demo</p>
+    <h1 class="intro__title">The public internet, <em>side by side</em> with Datum.</h1>
+    <p class="intro__sub">Two probers hit the same origin every few seconds — one over the open internet, one through a Datum tunnel. Real packet loss, real tail latency, no hand-waving.</p>
+  </section>
+
   <main class="grid">
     <section class="column column--internet" data-path="direct">
       <h2 class="column__title">Without Datum</h2>
       <p class="column__sub">Public internet · scenic BGP · no observability</p>
+      <div class="action action--diy" id="direct-action" hidden>
+        <div class="action__head">
+          <span class="action__title">Basic auth</span>
+          <span class="action__pill">manual setup</span>
+        </div>
+        <p class="action__lede">Five moving parts you ship and operate yourself.</p>
+        <ol class="action__stack">
+          <li>
+            <span class="action__tool"><code>nginx</code></span>
+            <span class="action__detail">or Caddy / Traefik — terminate + enforce <code>auth_basic</code></span>
+          </li>
+          <li>
+            <span class="action__tool"><code>htpasswd</code></span>
+            <span class="action__detail">generate, mount as a secret, reload on change</span>
+          </li>
+          <li>
+            <span class="action__tool"><code>cert-manager</code></span>
+            <span class="action__detail">or certbot — issue + renew TLS</span>
+          </li>
+          <li>
+            <span class="action__tool">VM + DNS</span>
+            <span class="action__detail">a host, a public IP, an A record</span>
+          </li>
+          <li>
+            <span class="action__tool">log pipeline</span>
+            <span class="action__detail">ship access logs somewhere queryable</span>
+          </li>
+        </ol>
+      </div>
       <div class="metric">
         <div class="metric__value" id="direct-current">—</div>
         <div class="metric__unit" title="Total time for the most recent probe: DNS + TCP + TLS + server response + body transfer. Shown only when the latest probe succeeded.">ms total</div>
@@ -61,6 +99,30 @@
         <div><span class="meta__label" title="Number of probes captured in the last 5 minutes (one every 5 seconds).">samples</span> <span id="datum-count">0</span></div>
       </div>
       <div class="banner" id="datum-banner" hidden>Datum tunnel offline</div>
+      <div class="action action--live" id="datum-action" hidden>
+        <div class="action__head">
+          <span class="action__title">Basic auth</span>
+          <button type="button" class="action__switch" id="basic-auth-switch" role="switch" aria-checked="false">
+            <span class="action__switch-knob"></span>
+          </button>
+        </div>
+        <p class="action__lede">One <code>SecurityPolicy</code>. Datum handles the rest.</p>
+        <form class="action__form" id="basic-auth-form" hidden>
+          <label>
+            <span>username</span>
+            <input type="text" name="username" autocomplete="username" required />
+          </label>
+          <label>
+            <span>password</span>
+            <input type="password" name="password" autocomplete="new-password" required />
+          </label>
+          <div class="action__row">
+            <button type="submit" class="action__btn">Apply</button>
+            <span class="action__msg" id="basic-auth-msg" aria-live="polite"></span>
+          </div>
+        </form>
+        <p class="action__status" id="basic-auth-status" hidden></p>
+      </div>
     </section>
   </main>
 
