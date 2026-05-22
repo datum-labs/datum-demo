@@ -69,18 +69,23 @@
 
           datum-connect = app.packages.${system}.cli-static;
 
-          # Override the upstream datumctl flake to produce a statically
-          # linked binary so we can scp it to a vanilla Debian box without
-          # carrying nix-store glibc.
-          datumctl = (datumctl.packages.${system}.default).overrideAttrs (old: {
-            env = (old.env or { }) // { CGO_ENABLED = "0"; };
-            tags = (old.tags or [ ]) ++ [ "netgo" "osusergo" ];
-          });
+          datumctl = datumctl.packages.${system}.default;
         };
 
         apps.default = {
           type = "app";
           program = "${demo}/bin/demo";
+        };
+
+        # nix run .#dev  — starts origin + prober via process-compose with
+        # the right PATH baked in so demo and datumctl resolve without
+        # entering the devShell first.
+        apps.dev = {
+          type = "app";
+          program = toString (pkgs.writeShellScript "dev" ''
+            export PATH="${demo}/bin:${datumctl.packages.${system}.default}/bin:$PATH"
+            exec ${pkgs.process-compose}/bin/process-compose up "$@"
+          '');
         };
 
         devShells.default = pkgs.mkShell {
@@ -93,25 +98,27 @@
             curl
             jq
             terraform
+            process-compose
+          ] ++ [
+            demo
+            datumctl.packages.${system}.default
           ];
 
           shellHook = ''
             echo "demo.datum.net devshell"
-            echo "  go         $(go version | awk '{print $3}')"
-            echo "  sqlite     $(sqlite3 --version | awk '{print $1}')"
-            echo "  terraform  $(terraform version | head -1 | awk '{print $2}')"
+            echo "  go              $(go version | awk '{print $3}')"
+            echo "  sqlite          $(sqlite3 --version | awk '{print $1}')"
+            echo "  terraform       $(terraform version | head -1 | awk '{print $2}')"
+            echo "  process-compose $(process-compose version | head -1)"
+            echo ""
+            echo "Local dev:"
+            echo "  nix run .#dev               # starts origin + prober (process-compose, PATH pre-wired)"
+            echo "  process-compose up          # same, if already in this shell"
             echo ""
             echo "Build targets:"
             echo "  nix build .#demo            # our prober + origin"
             echo "  nix build .#datum-connect   # CLI from ../app (cli-static)"
             echo "  nix build .#datumctl        # the Datum Cloud CLI"
-            echo ""
-            echo "Run:"
-            echo "  go run ./cmd/demo origin --listen :8081 --payload-bytes 4096"
-            echo "  go run ./cmd/demo prober --listen :8080 \\"
-            echo "      --target-direct https://origin.example.com/ \\"
-            echo "      --target-datum  https://x.iroh.datum.net/ \\"
-            echo "      --interval 2s"
           '';
         };
 

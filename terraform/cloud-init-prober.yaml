@@ -44,7 +44,8 @@ write_files:
         --target-direct ${target_direct} \
         --target-datum ${target_datum} \
         --db /var/lib/demo/prober.db \
-        --interval 5s%{ if enable_datum_control } \
+        --interval 5s \
+        --debug%{ if enable_datum_control } \
         --datum-kubeconfig /var/lib/demo/kubeconfig.yaml \
         --datum-tunnel-namespace ${datum_tunnel_namespace} \
         --datum-tunnel-name ${datum_tunnel_name}%{ endif }

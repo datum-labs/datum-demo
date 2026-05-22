@@ -1,0 +1,62 @@
+version: "0.5"
+
+# Override any of these with environment variables before running
+# process-compose up, e.g.:
+#   DATUM_TUNNEL=my-tunnel process-compose up
+environment:
+  - "DATUM_PROJECT=shippingbytes-jh601e"
+  - "DATUM_TUNNEL=tunnel-vdnmd"
+  - "DATUM_KUBECONFIG=/tmp/datum-kubeconfig.yaml"
+  - "PROBER_DB=/tmp/prober-local.db"
+  - "ORIGIN_PORT=9090"
+  - "PROBER_PORT=8080"
+
+processes:
+
+  # Generates ~/.kube-style kubeconfig so the prober can talk to the
+  # Datum control plane for basic-auth policy management.
+  setup-kubeconfig:
+    command: >-
+      datumctl auth update-kubeconfig
+      --project $DATUM_PROJECT
+      --kubeconfig $DATUM_KUBECONFIG
+    availability:
+      restart: "no"
+
+  origin:
+    command: demo origin --listen :$ORIGIN_PORT
+    readiness_probe:
+      http_get:
+        host: localhost
+        port: $ORIGIN_PORT
+        path: /
+      initial_delay_seconds: 1
+      period_seconds: 1
+      failure_threshold: 5
+    availability:
+      restart: on_failure
+
+  prober:
+    command: >-
+      demo prober
+      --listen :$PROBER_PORT
+      --target-direct http://localhost:$ORIGIN_PORT
+      --target-datum http://localhost:$ORIGIN_PORT
+      --datum-kubeconfig $DATUM_KUBECONFIG
+      --datum-tunnel-name $DATUM_TUNNEL
+      --db $PROBER_DB
+    depends_on:
+      setup-kubeconfig:
+        condition: process_completed_successfully
+      origin:
+        condition: process_healthy
+    readiness_probe:
+      http_get:
+        host: localhost
+        port: $PROBER_PORT
+        path: /api/health
+      initial_delay_seconds: 1
+      period_seconds: 1
+      failure_threshold: 5
+    availability:
+      restart: on_failure

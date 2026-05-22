@@ -85,6 +85,9 @@ func (c *Client) EnableBasicAuth(ctx context.Context, namespace, tunnel, usernam
 		"metadata": map[string]any{
 			"name":      name,
 			"namespace": namespace,
+			"labels": map[string]any{
+				"networking.datumapis.com/gateway-sync": "true",
+			},
 		},
 		"type": "Opaque",
 		"stringData": map[string]any{
