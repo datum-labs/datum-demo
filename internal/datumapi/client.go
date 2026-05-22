@@ -68,22 +68,26 @@ func (c *Client) Smoke(ctx context.Context, namespace string) (int, error) {
 	return len(list.Items), nil
 }
 
-// resourceName is the Secret + SecurityPolicy name for a given tunnel.
-func resourceName(tunnel string) string {
+// secretName returns the Secret name for a given tunnel's basic-auth credentials.
+func secretName(tunnel string) string {
 	return tunnel + "-basic-auth"
 }
 
 // EnableBasicAuth upserts the htpasswd Secret and the SecurityPolicy that
-// attaches BasicAuth to the HTTPRoute named `tunnel` in `namespace`. Idempotent
+// attaches BasicAuth to the Gateway named `tunnel` in `namespace`. Idempotent
 // via server-side apply.
+//
+// The SecurityPolicy is named after the tunnel (matching the portal convention)
+// and targets the Gateway, not the HTTPRoute, which is what the Datum portal
+// writes when toggling basic auth on.
 func (c *Client) EnableBasicAuth(ctx context.Context, namespace, tunnel, username, password string) error {
-	name := resourceName(tunnel)
+	sName := secretName(tunnel)
 
 	secret := unstructured.Unstructured{Object: map[string]any{
 		"apiVersion": "v1",
 		"kind":       "Secret",
 		"metadata": map[string]any{
-			"name":      name,
+			"name":      sName,
 			"namespace": namespace,
 			"labels": map[string]any{
 				"networking.datumapis.com/gateway-sync": "true",
@@ -102,20 +106,20 @@ func (c *Client) EnableBasicAuth(ctx context.Context, namespace, tunnel, usernam
 		"apiVersion": "gateway.envoyproxy.io/v1alpha1",
 		"kind":       "SecurityPolicy",
 		"metadata": map[string]any{
-			"name":      name,
+			"name":      tunnel,
 			"namespace": namespace,
 		},
 		"spec": map[string]any{
 			"targetRefs": []any{
 				map[string]any{
 					"group": "gateway.networking.k8s.io",
-					"kind":  "HTTPRoute",
+					"kind":  "Gateway",
 					"name":  tunnel,
 				},
 			},
 			"basicAuth": map[string]any{
 				"users": map[string]any{
-					"name": name,
+					"name": sName,
 				},
 			},
 		},
@@ -129,12 +133,11 @@ func (c *Client) EnableBasicAuth(ctx context.Context, namespace, tunnel, usernam
 // DisableBasicAuth deletes the SecurityPolicy and Secret. Missing resources
 // are treated as success.
 func (c *Client) DisableBasicAuth(ctx context.Context, namespace, tunnel string) error {
-	name := resourceName(tunnel)
-	if err := c.dyn.Resource(GVRSecurityPolicy).Namespace(namespace).Delete(ctx, name, metav1.DeleteOptions{}); err != nil && !apierrors.IsNotFound(err) {
-		return fmt.Errorf("delete securitypolicy %q: %w", name, err)
+	if err := c.dyn.Resource(GVRSecurityPolicy).Namespace(namespace).Delete(ctx, tunnel, metav1.DeleteOptions{}); err != nil && !apierrors.IsNotFound(err) {
+		return fmt.Errorf("delete securitypolicy %q: %w", tunnel, err)
 	}
-	if err := c.dyn.Resource(GVRSecret).Namespace(namespace).Delete(ctx, name, metav1.DeleteOptions{}); err != nil && !apierrors.IsNotFound(err) {
-		return fmt.Errorf("delete secret %q: %w", name, err)
+	if err := c.dyn.Resource(GVRSecret).Namespace(namespace).Delete(ctx, secretName(tunnel), metav1.DeleteOptions{}); err != nil && !apierrors.IsNotFound(err) {
+		return fmt.Errorf("delete secret %q: %w", secretName(tunnel), err)
 	}
 	return nil
 }
