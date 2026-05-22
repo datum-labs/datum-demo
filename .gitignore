@@ -10,3 +10,7 @@ vendor
 result*
 sa.json
 *.kubeconfig
+# datum-connect runtime state (project-id named directories)
+*/listen_key
+*/state.yml
+*/config.yml
