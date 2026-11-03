@@ -2,6 +2,8 @@ module demo.datum.net
 
 go 1.26.0
 
+toolchain go1.27.3
+
 require (
 	golang.org/x/sys v0.49.0
 	k8s.io/apimachinery v0.37.2
