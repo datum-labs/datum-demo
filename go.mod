@@ -6,8 +6,8 @@ toolchain go1.27.4
 
 require (
 	golang.org/x/sys v0.49.0
-	k8s.io/apimachinery v0.37.2
-	k8s.io/client-go v0.37.2
+	k8s.io/apimachinery v0.37.3
+	k8s.io/client-go v0.37.3
 	modernc.org/sqlite v1.61.1
 )
 
